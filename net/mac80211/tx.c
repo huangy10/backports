@@ -1746,13 +1746,47 @@ static bool ieee80211_parse_tx_radiotap(struct sk_buff *skb)
 	return true;
 }
 
+/*
+ * Woody Huang, 2016.10.18
+ *
+ * 网络层调用MAC层的入口
+ *
+ * sk_buff 即是Socket Buffer，是Linux的TCP/IP协议栈的关键数据结构
+ * net_device 也是Linux内核中定义的结构，用来描述网络丝设备
+ */
 netdev_tx_t ieee80211_monitor_start_xmit(struct sk_buff *skb,
 					 struct net_device *dev)
 {
+    /*
+     * Woody Huang, 2016.10.18
+     *
+     * dev->ieee80211_ptr: IEEE 802.11 specific data, assign before registering
+     *                      数据类型是 struct wireless_dev
+     * 看起来这一行的作用是从传入的dev信息中提前关于ieee802.11的信息
+     */
 	struct ieee80211_local *local = wdev_priv(dev->ieee80211_ptr);
 	struct ieee80211_chanctx_conf *chanctx_conf;
+
+    /*
+     * Woody Huang, 2016.10.18
+     *
+     * skb->data 应该数数据段，定义的格式是usigned char *
+     * ieee80211_radio_header 应该是用来捕获ieee802.11 header的信息
+     */
 	struct ieee80211_radiotap_header *prthdr =
 		(struct ieee80211_radiotap_header *)skb->data;
+
+    /*
+     * Woody Huang, 2016.10.18
+     *
+     * 此处就是讲skb的cb字段返回，cb为 Control Buffer 的缩写。关于这个属性的注释说明如下
+     *
+     * This is the control buffer. It is safe to use for every layer. Please put your
+     * private variables there. If you want to keep them across layers, you have to do a
+     * skb_clone() first. This is owned by whoever has the skb queue ATM.
+     *
+     * cb定义为长度为48的char型数组
+     */
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
 	struct ieee80211_hdr *hdr;
 	struct ieee80211_sub_if_data *tmp_sdata, *sdata;
@@ -1760,10 +1794,30 @@ netdev_tx_t ieee80211_monitor_start_xmit(struct sk_buff *skb,
 	u16 len_rthdr;
 	int hdrlen;
 
+    /*
+     * Woody Huang, 2016.10.18
+     *
+     * unlikely/likely 这一对工具并没有改变其参数的bool值，也就是说if (likely(flag)) 等价于 if (flag)
+     *
+     * 不过，这个两个宏可以给编译器提供分支条件中，哪一个分支的执行概率更高。例如
+     *
+     * if (likely(flag)) {
+     *     a();
+     * } else {
+     *     b();
+     * }
+     *
+     * 此处通过likely来告知编译器，执行a()的概率要高一些。这样可以减少指令跳转带来的性能下降。
+     */
 	/* check for not even having the fixed radiotap header part */
 	if (unlikely(skb->len < sizeof(struct ieee80211_radiotap_header)))
 		goto fail; /* too short to be possibly valid */
 
+    /*
+     * Woody Huang, 2016.10.18
+     *
+     * it_version这个属性的值一般为0，有大幅度改动是才会增加
+     */
 	/* is it a header version we can trust to find length from? */
 	if (unlikely(prthdr->it_version))
 		goto fail; /* only version 0 is supported */
@@ -1771,10 +1825,19 @@ netdev_tx_t ieee80211_monitor_start_xmit(struct sk_buff *skb,
 	/* then there must be a radiotap header with a length we can use */
 	len_rthdr = ieee80211_get_radiotap_len(skb->data);
 
+    // 数据一致性的检验，header的长度不能超过整个buffer的长度。-- Woody Huang, 2016.10.18
 	/* does the skb contain enough to deliver on the alleged length? */
 	if (unlikely(skb->len < len_rthdr))
 		goto fail; /* skb too short for claimed rt header extent */
 
+    /*
+     * Woody Huang, 2016.10.18
+     *
+     * 解释一下这里的原理。skb中两个重要的指针即data, head，目前基本可以推测data为数据包，所在，head估计是header的位置？
+     * skb_set_mac_header是用来确定mac_header的（mac_header是一个__u16，并非指针，应该是mac header的位置的offset。
+     * 此处会设置mac_header = data - head + offset.
+     *
+     */
 	/*
 	 * fix up the pointers accounting for the radiotap
 	 * header still being in there.  We are being given
@@ -1789,37 +1852,71 @@ netdev_tx_t ieee80211_monitor_start_xmit(struct sk_buff *skb,
 	skb_set_network_header(skb, len_rthdr);
 	skb_set_transport_header(skb, len_rthdr);
 
+    // Dont know why. -- Woody Huang, 2016.10.18
 	if (skb->len < len_rthdr + 2)
 		goto fail;
 
+    /*
+     * Woody Huang, 2016.10.18
+     *
+     * 取出mac层定义的头. 下面的ieee80211_hdrlen涉及到ACK和CTS的问题，注意查看
+     */
 	hdr = (struct ieee80211_hdr *)(skb->data + len_rthdr);
 	hdrlen = ieee80211_hdrlen(hdr->frame_control);
 
+    /*
+     * Woody Huang, 2016.10.18
+     *
+     * 显然这里skb的长度要能容纳自己的header和mac层的header了
+     */
 	if (skb->len < len_rthdr + hdrlen)
 		goto fail;
 
 	/*
 	 * Initialize skb->protocol if the injected frame is a data frame
 	 * carrying a rfc1042 header
+	 *
+	 * Woody Huang, 2016.10.18
+	 *
+	 * 注意这里后半部分的长度比对，算上了rfc1042的header的长度，以及不明觉厉的2
 	 */
 	if (ieee80211_is_data(hdr->frame_control) &&
 	    skb->len >= len_rthdr + hdrlen + sizeof(rfc1042_header) + 2) {
+
+        /*
+         * Woody Huang, 2016.10.19
+         *
+         * 跨过头部，取出载荷
+         */
 		u8 *payload = (u8 *)hdr + hdrlen;
 
 		if (ether_addr_equal(payload, rfc1042_header))
+            /*
+             * Woody Huang, 2016.10.19
+             *
+             * 设置协议信息？后面的计算方式不懂
+             */
 			skb->protocol = cpu_to_be16((payload[6] << 8) |
 						    payload[7]);
 	}
-
+    // info是ieee802.11的tx info，其指针指向的位置是skb中的control buffer -- Woody Huang, 2016.10.19
 	memset(info, 0, sizeof(*info));
 
 	info->flags = IEEE80211_TX_CTL_REQ_TX_STATUS |
 		      IEEE80211_TX_CTL_INJECTED;
 
+    /*
+     * Woody Huang, 2016.10.19
+     *
+     * 移除injection radiotap header的过程是在ieee80211_parse_tx_radiotap中完成的
+     */
 	/* process and remove the injection radiotap header */
 	if (!ieee80211_parse_tx_radiotap(skb))
 		goto fail;
 
+    /*
+     * 类似于同步锁的存在，文档里面有详细说明
+     */
 	rcu_read_lock();
 
 	/*
@@ -1829,12 +1926,21 @@ netdev_tx_t ieee80211_monitor_start_xmit(struct sk_buff *skb,
 	 * isn't always enough to find the interface to use; for proper
 	 * VLAN/WDS support we will need a different mechanism (which
 	 * likely isn't going to be monitor interfaces).
+	 *
+	 * Woody Huang, 2016.10.19
+	 *
+	 * 和ifconfig命令有关联么？获取本地网络设备接口之类？
 	 */
 	sdata = IEEE80211_DEV_TO_SUB_IF(dev);
 
 	list_for_each_entry_rcu(tmp_sdata, &local->interfaces, list) {
 		if (!ieee80211_sdata_running(tmp_sdata))
 			continue;
+        /*
+         * Woody Huang, 2016.10.1
+         *
+         * 这里列出的好像是驱动定义了板子工作的不同模式
+         */
 		if (tmp_sdata->vif.type == NL80211_IFTYPE_MONITOR ||
 		    tmp_sdata->vif.type == NL80211_IFTYPE_AP_VLAN ||
 		    tmp_sdata->vif.type == NL80211_IFTYPE_WDS)

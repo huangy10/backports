@@ -56,7 +56,14 @@
 #define OFDM_PLCP_BITS_QUARTER      22
 #define OFDM_SYMBOL_TIME_QUARTER    16
 
+// 此处是否是IFS时间呢？ -- Woody Huang, 2016.10.16
 #define INIT_AIFS       2
+/*
+ * Woody Huang, 2016.10.16
+ * 禁止发送退避时，我们需要禁用掉随机退避，
+ * 随机退避的时间为backoff = random * slot，其中random为0-CW之间的随机数，CW为CW_min和CW_max之间的数
+ * 通过将CW_min和CW_max设置为最小值可以实现禁用退避
+ */
 #define INIT_CWMIN      15
 #define INIT_CWMIN_11B  31
 #define INIT_CWMAX      1023
@@ -236,6 +243,7 @@ struct ath_desc {
 	void *ds_vdata;
 } __packed __aligned(4);
 
+// 通过这个标识位来禁用发送端对ACK响应的等待 -- Woody Huang, 2016.10.16
 #define ATH9K_TXDESC_NOACK		0x0002
 #define ATH9K_TXDESC_RTSENA		0x0004
 #define ATH9K_TXDESC_CTSENA		0x0008
@@ -588,6 +596,12 @@ enum ath9k_tx_queue {
 /* Used as a queue subtype instead of a WMM AC */
 #define ATH9K_WME_UPSD	4
 
+// looks like a register for tx queue -- Woody Huang, 2016.10.16
+
+/*
+ * Woody Huang, 2016,10.16
+ * 此处TXQ_FLAG_BACKOFF_DISABLE涉及到硬件发送完成上一个帧之后的随机退避过程，通过设置此项来禁用这个退避过程。
+ */
 enum ath9k_tx_queue_flags {
 	TXQ_FLAG_TXINT_ENABLE = 0x0001,
 	TXQ_FLAG_TXDESCINT_ENABLE = 0x0002,

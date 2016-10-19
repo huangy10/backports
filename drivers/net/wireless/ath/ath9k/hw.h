@@ -75,6 +75,9 @@
 
 #define ATH9K_NUM_CHANNELS	38
 
+/*
+ * 寄存器读写方法 -- Woody Huang, 2016.10.16
+ */
 /* Register read/write primitives */
 #define REG_WRITE(_ah, _reg, _val) \
 	(_ah)->reg_ops.write((_ah), (_val), (_reg))
