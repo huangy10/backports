@@ -1138,6 +1138,8 @@ static bool ieee80211_tx_prep_agg(struct ieee80211_tx_data *tx,
  * initialises @tx
  * pass %NULL for the station if unknown, a valid pointer if known
  * or an ERR_PTR() if the station is known not to exist
+ *
+ * 上溯至start_xmit，传进来的sta是NULL
  */
 static ieee80211_tx_result
 ieee80211_tx_prepare(struct ieee80211_sub_if_data *sdata,
@@ -1154,18 +1156,25 @@ ieee80211_tx_prepare(struct ieee80211_sub_if_data *sdata,
 	tx->skb = skb;
 	tx->local = local;
 	tx->sdata = sdata;
+    // skb貌似是具有链表的特点，这个队列应该是基于链表的
 	__skb_queue_head_init(&tx->skbs);
 
 	/*
 	 * If this flag is set to true anywhere, and we get here,
 	 * we are doing the needed processing, so remove the flag
 	 * now.
+	 *
+	 * IEEE80211_TX_INTFL_NEED_TXPROCESSING的注释内容是：completely internal to mac80211, used to indicate that a pending
+	 * frme requires TX processing before it can be sent out
+	 *
+	 * 那么这里取消了这个置位，也就是说表明这个数据包已经可以发送了
 	 */
 	info->flags &= ~IEEE80211_TX_INTFL_NEED_TXPROCESSING;
 
 	hdr = (struct ieee80211_hdr *) skb->data;
 
 	if (likely(sta)) {
+        // sta已知
 		if (!IS_ERR(sta))
 			tx->sta = sta;
 	} else {
@@ -1217,6 +1226,7 @@ ieee80211_tx_prepare(struct ieee80211_sub_if_data *sdata,
 	}
 
 	if (!tx->sta)
+        // IEEE80211_TX_CTL_CLEAR_PS_FILT：Clear power save filter for destination station -- Woody Huang, 2016.10.23
 		info->flags |= IEEE80211_TX_CTL_CLEAR_PS_FILT;
 	else if (test_and_clear_sta_flag(tx->sta, WLAN_STA_CLEAR_PS_FILT))
 		info->flags |= IEEE80211_TX_CTL_CLEAR_PS_FILT;
@@ -1549,18 +1559,29 @@ EXPORT_SYMBOL(ieee80211_tx_prepare_skb);
 
 /*
  * Returns false if the frame couldn't be transmitted but was queued instead.
+ *
+ * Woody Huang, 2016.10.23
+ *
+ * 从ieee80211_xmit最后调用，执行发送？
  */
 static bool ieee80211_tx(struct ieee80211_sub_if_data *sdata,
 			 struct sta_info *sta, struct sk_buff *skb,
 			 bool txpending)
 {
 	struct ieee80211_local *local = sdata->local;
+    /*
+     * Woody Hunag, 2016.10.23
+     *
+     * VERY IMPORTANT
+     * 这里的ieee80211_tx_data按理说应该就是打包后进行发送的数据了，其中由于一个属性名为rate,类型是ieee80211_tx_rate
+     */
 	struct ieee80211_tx_data tx;
 	ieee80211_tx_result res_prepare;
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
 	bool result = true;
 	int led_len;
 
+    // 应当是长度不合理，退出了
 	if (unlikely(skb->len < 10)) {
 		dev_kfree_skb(skb);
 		return true;
@@ -1624,34 +1645,64 @@ static int ieee80211_skb_resize(struct ieee80211_sub_if_data *sdata,
 	return 0;
 }
 
+/*
+ * Woody Huang, 2016.10.23
+ *
+ * 发送环节的第二步，关键
+ *
+ * 其参数第一个是从skb->net_device中取出的private data，skb则是协议栈内容, start_xmit传递给这个函数的sta为NULL
+ */
 void ieee80211_xmit(struct ieee80211_sub_if_data *sdata,
 		    struct sta_info *sta, struct sk_buff *skb)
 {
 	struct ieee80211_local *local = sdata->local;
+    /*
+     * Woody Huang, 2016.10.23
+     *
+     * VERY IMPORTANT
+     *
+     * 特别注意ieee80211_tx_info这个数据结构http://lxr.free-electrons.com/source/include/net/mac80211.h#L872
+     * 其中包含了：
+     * 1、use_rts, use_cts_prot等关键标志位
+     * 2、速率控制信息
+     */
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *) skb->data;
 	int headroom;
 	bool may_encrypt;
 
+    /*
+     * Woody Huang, 2016.10.23
+     *
+     * 注意这里的flags取值于一个枚举类型http://lxr.free-electrons.com/source/include/net/mac80211.h#L673
+     *
+     * 关注这么几个值：IEEE80211_TX_CTL_NO_ACK
+     */
 	may_encrypt = !(info->flags & IEEE80211_TX_INTFL_DONT_ENCRYPT);
 
+    // Required headroom for hardware/radiotap
 	headroom = local->tx_headroom;
 	if (may_encrypt)
 		headroom += sdata->encrypt_headroom;
+    // 那么到此处得到的就是相比于skb中已有的headroom需要额外分配的空间
 	headroom -= skb_headroom(skb);
+    // 只增不减
 	headroom = max_t(int, 0, headroom);
 
+    // 那么看意思，应当是尝试重新分配上面的headroom需要的空间，失败之后释放返回？
 	if (ieee80211_skb_resize(sdata, skb, headroom, may_encrypt)) {
 		ieee80211_free_txskb(&local->hw, skb);
 		return;
 	}
 
 	hdr = (struct ieee80211_hdr *) skb->data;
+    // vif = virtual interface flags -- Woody Huang, 2016.10.23
 	info->control.vif = &sdata->vif;
 
 	if (ieee80211_vif_is_mesh(&sdata->vif)) {
 		if (ieee80211_is_data(hdr->frame_control) &&
 		    is_unicast_ether_addr(hdr->addr1)) {
+            // 自带的mesh多跳机制？这里我们用不到
 			if (mesh_nexthop_resolve(sdata, skb))
 				return; /* skb queued: don't free */
 		} else {
@@ -1659,6 +1710,7 @@ void ieee80211_xmit(struct ieee80211_sub_if_data *sdata,
 		}
 	}
 
+    // Fill in the QoS header if there is one.
 	ieee80211_set_qos_hdr(sdata, skb);
 	ieee80211_tx(sdata, sta, skb, false);
 }
@@ -1929,7 +1981,8 @@ netdev_tx_t ieee80211_monitor_start_xmit(struct sk_buff *skb,
 	 *
 	 * Woody Huang, 2016.10.19
 	 *
-	 * 和ifconfig命令有关联么？获取本地网络设备接口之类？
+	 * 和ifconfig命令有关联么？获取本地网络设备接口之类？内存而过签到的是netdev_priv这个函数，其注释生成此函数的
+	 * 功能是Get network device private data
 	 */
 	sdata = IEEE80211_DEV_TO_SUB_IF(dev);
 

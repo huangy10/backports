@@ -726,6 +726,11 @@ static bool ath_lookup_legacy(struct ath_buf *bf)
 	return false;
 }
 
+/*
+ * Woody Huang, 2016.10.23
+ *
+ * 有意思，应该是速率控制函数的，应该可以通过修改这个函数，例如总是返回常数值来禁用速率控制
+ */
 static u32 ath_lookup_rate(struct ath_softc *sc, struct ath_buf *bf,
 			   struct ath_atx_tid *tid)
 {
@@ -1341,7 +1346,11 @@ static void ath_tx_fill_desc(struct ath_softc *sc, struct ath_buf *bf,
 			if ((tx_info->flags & IEEE80211_TX_CTL_CLEAR_PS_FILT) ||
 			    txq == sc->tx.uapsdq)
 				info.flags |= ATH9K_TXDESC_CLRDMASK;
-
+			/*
+			 * Woody Huang, 2016.10.20
+			 *
+			 * 与ACK有关
+			 */
 			if (tx_info->flags & IEEE80211_TX_CTL_NO_ACK)
 				info.flags |= ATH9K_TXDESC_NOACK;
 			if (tx_info->flags & IEEE80211_TX_CTL_LDPC)
@@ -1911,6 +1920,8 @@ void ath_tx_cleanupq(struct ath_softc *sc, struct ath_txq *txq)
 
 /* For each acq entry, for each tid, try to schedule packets
  * for transmit until ampdu_depth has reached min Q depth.
+ *
+ * Woody Huang, 2016.10.23 发送队列调度函数，速率控制的调用树可以追溯到这里
  */
 void ath_txq_schedule(struct ath_softc *sc, struct ath_txq *txq)
 {

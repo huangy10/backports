@@ -342,6 +342,11 @@ unsigned int __attribute_const__ ieee80211_hdrlen(__le16 fc)
 	unsigned int hdrlen = 24;
 
 	if (ieee80211_is_data(fc)) {
+        /*
+         * Woody Huang, 2016.10.23
+         *
+         * ieee80211_has_a4的作用是判断的这个帧是否是来自于AP之外
+         */
 		if (ieee80211_has_a4(fc))
 			hdrlen = 30;
 		if (ieee80211_is_data_qos(fc)) {
@@ -352,12 +357,22 @@ unsigned int __attribute_const__ ieee80211_hdrlen(__le16 fc)
 		goto out;
 	}
 
+    /*
+     * Woody Huang, 2016.10.23
+     *
+     * mgmt = management 帧类型
+     */
 	if (ieee80211_is_mgmt(fc)) {
 		if (ieee80211_has_order(fc))
 			hdrlen += IEEE80211_HT_CTL_LEN;
 		goto out;
 	}
 
+    /*
+     * Woody Huang, 2016.10.23
+     *
+     * 显然这里就是指的控制帧了
+     */
 	if (ieee80211_is_ctl(fc)) {
 		/*
 		 * ACK and CTS are 10 bytes, all others 16. To see how

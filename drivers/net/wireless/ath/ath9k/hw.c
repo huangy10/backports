@@ -1674,6 +1674,11 @@ static void ath9k_hw_reset_opmode(struct ath_hw *ah,
 	ath9k_hw_set_operating_mode(ah, ah->opmode);
 }
 
+/*
+ * Woody Huang, 2016.10.23
+ *
+ * 初始化发送推队列
+ */
 static void ath9k_hw_init_queues(struct ath_hw *ah)
 {
 	int i;

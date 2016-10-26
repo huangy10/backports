@@ -1635,8 +1635,13 @@ enum {
  * transferred between the MAC and baseband. The RX block bit (AR_DIAG_RX_DIS)
  * will prevent any new frames from getting started.
  */
-#define AR_DIAG_SW                  0x8048
+#define AR_DIAG_SW                  0x8048     /* 第21比特为IGNORE_NAV，禁用载波侦听 -- Woody Huang, 2016.10.20 */
 #define AR_DIAG_CACHE_ACK           0x00000001
+/*
+ * Woody Huang, 2015.10.20
+ *
+ * 貌似是用来禁用ACK的
+ */
 #define AR_DIAG_ACK_DIS             0x00000002
 #define AR_DIAG_CTS_DIS             0x00000004
 #define AR_DIAG_ENCRYPT_DIS         0x00000008
@@ -1653,7 +1658,19 @@ enum {
 #define AR_DIAG_OBS_PT_SEL2         0x08000000
 #define AR_DIAG_OBS_PT_SEL2_S       27
 #define AR_DIAG_FORCE_RX_CLEAR      0x00100000 /* force rx_clear high */
+
+/*
+ * Woody Huang, 2016.10.22
+ *
+ * 禁用虚拟载波侦听？
+ */
 #define AR_DIAG_IGNORE_VIRT_CS      0x00200000
+/*
+ * Woody Huang, 2016.10.22
+ *
+ * 这位的作用是Force channel idle high
+ * 按照意思，应该是强制认为信道是空闲，等效于禁用了物理载波侦听（甚至可能连虚拟载波侦听也一并禁用了）
+ */
 #define AR_DIAG_FORCE_CH_IDLE_HIGH  0x00400000
 #define AR_DIAG_EIFS_CTRL_ENA       0x00800000
 #define AR_DIAG_DUAL_CHAIN_INFO     0x01000000

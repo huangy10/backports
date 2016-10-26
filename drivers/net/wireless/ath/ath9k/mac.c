@@ -364,6 +364,11 @@ bool ath9k_hw_releasetxqueue(struct ath_hw *ah, u32 q)
 }
 EXPORT_SYMBOL(ath9k_hw_releasetxqueue);
 
+/*
+ * Woody Huang, 2016.10.23
+ *
+ * 重置发送队列, q应该是队列的编号
+ */
 bool ath9k_hw_resettxqueue(struct ath_hw *ah, u32 q)
 {
 	struct ath_common *common = ath9k_hw_common(ah);
@@ -372,6 +377,7 @@ bool ath9k_hw_resettxqueue(struct ath_hw *ah, u32 q)
 
 	qi = &ah->txq[q];
 	if (qi->tqi_type == ATH9K_TX_QUEUE_INACTIVE) {
+        // debug输出，666
 		ath_dbg(common, QUEUE, "Reset TXQ, inactive queue: %u\n", q);
 		return true;
 	}
@@ -387,6 +393,11 @@ bool ath9k_hw_resettxqueue(struct ath_hw *ah, u32 q)
 
 	ENABLE_REGWRITE_BUFFER(ah);
 
+    /*
+     * Woody Huang, 2016.10.23
+     *
+     * 设置发送退避的关键属性
+     */
 	REG_WRITE(ah, AR_DLCL_IFS(q),
 		  SM(cwMin, AR_D_LCL_IFS_CWMIN) |
 		  SM(qi->tqi_cwmax, AR_D_LCL_IFS_CWMAX) |
@@ -428,6 +439,7 @@ bool ath9k_hw_resettxqueue(struct ath_hw *ah, u32 q)
 	    && (qi->tqi_qflags & TXQ_FLAG_RDYTIME_EXP_POLICY_ENABLE))
 		REG_SET_BIT(ah, AR_QMISC(q), AR_Q_MISC_RDYTIME_EXP_POLICY);
 
+    // 禁用退避相关
 	if (qi->tqi_qflags & TXQ_FLAG_BACKOFF_DISABLE)
 		REG_SET_BIT(ah, AR_DMISC(q), AR_D_MISC_POST_FR_BKOFF_DIS);
 
